@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MoeForge/moego/json"
@@ -37,12 +38,19 @@ var qualityQuestions = []struct{ prompt, answer string }{
 	{"Return only the integer. What is the median of 3, 8, 13, 18, 29?", "13"},
 }
 
+// A credential shared by two channels can be checked from both schedules.
+// Serialize those probes so a second round reads the first round's result.
+var qualityChecks sync.Map
+
 // CheckAccountQuality pins a small diagnostic to one credential. Only a complete,
 // scorable answer changes its quality streak. Provider errors are kept distinct.
 func (h *Handler) CheckAccountQuality(c *gin.Context) {
 	var input struct {
-		Name  string `json:"name"`
-		Model string `json:"model"`
+		Name     string `json:"name"`
+		Pool     string `json:"channel_pool_id"`
+		Question string `json:"question"`
+		Answer   string `json:"answer"`
+		Model    string `json:"model"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil || input.Name == "" || strings.TrimSpace(input.Model) == "" || len(input.Model) > 160 {
 		c.JSON(400, gin.H{"error": "name and model required"})
@@ -57,9 +65,43 @@ func (h *Handler) CheckAccountQuality(c *gin.Context) {
 		c.JSON(409, gin.H{"error": "active Codex account required"})
 		return
 	}
+	key := struct {
+		handler *Handler
+		id      string
+	}{h, a.ID}
+	for {
+		done := make(chan struct{})
+		wait, busy := qualityChecks.LoadOrStore(key, done)
+		if !busy {
+			defer func() { qualityChecks.Delete(key); close(done) }()
+			break
+		}
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-wait.(chan struct{}):
+		}
+	}
+	a, ok = h.authManager.GetByID(a.ID)
+	if !ok || a == nil || a.Provider != "codex" || a.Disabled || a.Status == coreauth.StatusDisabled {
+		c.JSON(409, gin.H{"error": "active Codex account required"})
+		return
+	}
+	if input.Pool != "" && input.Pool != a.ChannelPool() {
+		c.JSON(409, gin.H{"error": "account pool changed"})
+		return
+	}
+	prompt, answer := strings.TrimSpace(input.Question), strings.TrimSpace(input.Answer)
+	if (prompt == "") != (answer == "") || len(prompt) > 2048 || len(answer) > 256 {
+		c.JSON(400, gin.H{"error": "invalid question or answer"})
+		return
+	}
 	prev := accountCheckFromAuth(a)
 	check := accountCheck{Time: time.Now().Unix(), Sequence: prev.Sequence + 1, Model: input.Model}
 	q := qualityQuestions[uint64(prev.Sequence)%uint64(len(qualityQuestions))]
+	if prompt != "" {
+		q.prompt, q.answer = prompt, answer
+	}
 	check.Question = q.prompt
 	if a.RequiresSignIn {
 		check.Result = "login_required"
@@ -96,7 +138,7 @@ func (h *Handler) CheckAccountQuality(c *gin.Context) {
 		}
 	}
 	stored, committed, err := h.authManager.Modify(c.Request.Context(), a.ID, a.RegistrationEpoch, func(current *coreauth.Auth) error {
-		if current.Disabled || current.CredentialVersion != a.CredentialVersion || accountCheckFromAuth(current).Sequence != prev.Sequence {
+		if current.ChannelPool() != a.ChannelPool() || current.Disabled || current.CredentialVersion != a.CredentialVersion || accountCheckFromAuth(current).Sequence != prev.Sequence {
 			return errors.New("account changed during check")
 		}
 		if current.RequiresSignIn {

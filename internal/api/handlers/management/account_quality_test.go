@@ -32,3 +32,28 @@ func TestAccountCheckRequiresSignInDisablesOnlyTarget(t *testing.T) {
 		t.Fatalf("unexpected state: HTTP %d, synchronized %q, response %s", w.Code, synced, w.Body.String())
 	}
 }
+
+func TestQualityCheckRejectsMovedAccountAndUsesChannelQuestion(t *testing.T) {
+	m := coreauth.NewManager(nil, nil, nil)
+	_, err := m.Register(t.Context(), &coreauth.Auth{ID: "test-id", FileName: "test-id", Provider: "codex", RequiresSignIn: true, Metadata: map[string]any{"channel_pool_id": "own"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, m)
+	for _, tc := range []struct {
+		pool, answer string
+		code         int
+	}{{"other", "4", 409}, {"own", "", 400}, {"own", "4", 200}} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/checks", strings.NewReader(`{"name":"test-id","model":"fixture","question":"2+2?","answer":"`+tc.answer+`","channel_pool_id":"`+tc.pool+`"}`))
+		h.CheckAccountQuality(c)
+		if w.Code != tc.code {
+			t.Fatalf("status %d", w.Code)
+		}
+	}
+	a, _ := m.GetByID("test-id")
+	if check := accountCheckFromAuth(a); check.Question != "2+2?" || check.Result != "login_required" {
+		t.Fatal(check)
+	}
+}

@@ -44,6 +44,8 @@ func (s *Server) registerManagementV8Routes() {
 	v8.GET("/observability/requests/in-flight", s.mgmt.GetInFlightRequests)
 
 	v8.GET("/credentials", s.mgmt.ListAuthFiles)
+	v8.GET("/channel-pools/:pool/account-limit", s.mgmt.PoolAccountLimit)
+	v8.PUT("/channel-pools/:pool/account-limit", s.mgmt.PoolAccountLimit)
 	v8.PUT("/channel-pools/:pool", s.mgmt.EnsureChannelPool)
 	v8.POST("/channel-pools/:pool/restore", s.mgmt.RestoreChannelAccount)
 	v8.POST("/credentials/quality-check", s.mgmt.CheckAccountQuality)

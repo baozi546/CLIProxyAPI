@@ -2,8 +2,13 @@ package auth
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +25,29 @@ func AccountConcurrencyLimit(a *Auth) int {
 		return 0
 	}
 	return n
+}
+
+// ReadPoolAccountLimit returns nil until a pool-wide per-account limit is saved.
+// Existing credentials keep their own settings until that first edit.
+func ReadPoolAccountLimit(dir, pool string) (*int, error) {
+	if dir == "" || len(pool) != 32 {
+		return nil, nil
+	}
+	if _, err := hex.DecodeString(pool); err != nil {
+		return nil, nil
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".channel-pools", pool, "account-limit"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || n < 0 || n > 1000000 {
+		return nil, errors.New("invalid pool account limit")
+	}
+	return &n, nil
 }
 
 type accountSlots struct {
@@ -41,6 +69,14 @@ func (m *Manager) acquireAccount(ctx context.Context, a *Auth) (func(), error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		var override *int
+		if cfg := m.runtimeConfigSnapshot(); cfg != nil && a.ChannelPool() != "" {
+			var err error
+			override, err = ReadPoolAccountLimit(cfg.AuthDir, a.ChannelPool())
+			if err != nil {
+				return nil, &Error{Code: "pool_policy_unavailable", Message: "account limit unavailable", HTTPStatus: 503}
+			}
+		}
 		slots.Lock()
 		m.mu.RLock()
 		current := m.auths[a.ID]
@@ -50,6 +86,9 @@ func (m *Manager) acquireAccount(ctx context.Context, a *Auth) (func(), error) {
 			return nil, &Error{Code: "credential_unavailable", Message: "credential changed while waiting for admission", HTTPStatus: 409}
 		}
 		limit := AccountConcurrencyLimit(current)
+		if override != nil {
+			limit = *override
+		}
 		m.mu.RUnlock()
 		if slots.active == nil {
 			slots.active = make(map[string]*accountSlot)
