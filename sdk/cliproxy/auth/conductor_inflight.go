@@ -163,13 +163,18 @@ func wrapInFlightStreamResult(result *cliproxyexecutor.StreamResult, scope *inFl
 		}
 		return result
 	}
+	return wrapStreamLifetime(result, ctx, scope.end)
+}
+
+func wrapStreamLifetime(result *cliproxyexecutor.StreamResult, ctx context.Context, release func()) *cliproxyexecutor.StreamResult {
+	end := sync.OnceFunc(release)
 	out := make(chan cliproxyexecutor.StreamChunk)
 	go func() {
 		// Release the in-flight scope as soon as forwarding stops (stream end
 		// or cancellation). The output channel closes only after the inner
 		// channel is fully drained so callers keep the original happens-before
 		// between stream end and upstream result bookkeeping.
-		defer scope.end()
+		defer end()
 		if result.Chunks == nil {
 			close(out)
 			return
@@ -195,7 +200,7 @@ func wrapInFlightStreamResult(result *cliproxyexecutor.StreamResult, scope *inFl
 		// the inner stream wrapper finishes its bookkeeping before out closes.
 		// The scope is released explicitly here before the drain can block;
 		// the deferred end above remains as the safety net for other exits.
-		scope.end()
+		end()
 		for range result.Chunks {
 		}
 		close(out)

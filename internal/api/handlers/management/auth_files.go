@@ -685,6 +685,11 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 		"size":           int64(0),
 	}
 	entry["success"] = auth.Success
+	if quota.v8 {
+		entry["account_concurrency"] = coreauth.AccountConcurrencyLimit(auth)
+		entry["account_pool"], _ = auth.Metadata["account_pool"].(string)
+		entry["account_check"] = accountCheckFromAuth(auth)
+	}
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
 	entry["quota"] = quotaObservationPayloadForProvider(auth.Provider, auth.Quota)

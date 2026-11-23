@@ -381,6 +381,21 @@ func applyAuthFileFieldsPatch(targetAuth *coreauth.Auth, req map[string]json.Raw
 		if errDecode != nil {
 			return &authFileFieldPatchError{message: fmt.Sprintf("invalid field %s", fieldPath)}
 		}
+		switch rootAuthFileField(fieldPath) {
+		case "account_concurrency":
+			n, ok := value.(json.Number)
+			limit, err := n.Int64()
+			if fieldPath != "account_concurrency" || !ok || err != nil || limit < 0 || limit > 1000000 {
+				return &authFileFieldPatchError{message: "account_concurrency must be an integer from 0 to 1000000"}
+			}
+		case "account_pool":
+			pool, ok := value.(string)
+			if fieldPath != "account_pool" || !ok || (pool != "unassigned" && pool != "plus" && pool != "pro" && pool != "degraded") {
+				return &authFileFieldPatchError{message: "invalid account pool"}
+			}
+		case "account_check":
+			return &authFileFieldPatchError{message: "account_check is read-only"}
+		}
 		if rootAuthFileField(fieldPath) == "excluded_models" {
 			if fieldPath != "excluded_models" {
 				return &authFileFieldPatchError{message: "excluded_models does not support nested fields"}
