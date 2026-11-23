@@ -11,6 +11,12 @@ import (
 
 func (s *Server) channelPoolScope(c *gin.Context) {
 	id := c.Param("pool")
+	category := c.Param("category")
+	if category != "" && !auth.ValidAccountPool(category) {
+		c.AbortWithStatusJSON(400, gin.H{"error": gin.H{"message": "invalid account category"}})
+		return
+	}
+	c.Request = c.Request.WithContext(auth.WithAccountPool(c.Request.Context(), category))
 	if s.mgmt == nil || !s.mgmt.HasChannelPool(id) {
 		c.AbortWithStatusJSON(404, gin.H{"error": gin.H{"message": "channel pool not found"}})
 		return
@@ -22,12 +28,12 @@ func (s *Server) channelPoolScope(c *gin.Context) {
 	c.Request = c.Request.WithContext(auth.WithChannelPool(c.Request.Context(), id))
 	if c.Request.Method != http.MethodGet {
 		for _, member := range s.handlers.AuthManager.List() {
-			if member.ChannelPool() == id && !member.Disabled && member.Status != auth.StatusDisabled {
+			if member.ChannelPool() == id && (category == "" || member.AccountPool() == category) && !member.Disabled && member.Status != auth.StatusDisabled {
 				c.Next()
 				return
 			}
 		}
-		c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"code": "channel_pool_empty", "message": "No active accounts in this channel pool"}})
+		c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"code": "channel_pool_empty", "message": "No active accounts matching this channel pool and account category"}})
 		return
 	}
 	c.Next()
@@ -37,7 +43,7 @@ func (s *Server) channelPoolModels(c *gin.Context) {
 	ids := map[string]bool{}
 	pool := c.Param("pool")
 	for _, a := range s.handlers.AuthManager.List() {
-		if a.Disabled || a.Status == auth.StatusDisabled || a.ChannelPool() != pool {
+		if a.Disabled || a.Status == auth.StatusDisabled || a.ChannelPool() != pool || (auth.AccountPoolFromContext(c.Request.Context()) != "" && a.AccountPool() != auth.AccountPoolFromContext(c.Request.Context())) {
 			continue
 		}
 		for _, model := range registry.GetGlobalRegistry().GetModelsForClient(a.ID) {

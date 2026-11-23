@@ -83,6 +83,50 @@ func isBuiltInSelector(selector Selector) bool {
 type requiredAuthKindContextKey struct{}
 type credentialPolicyContextKey struct{}
 type channelPoolContextKey struct{}
+type accountPoolContextKey struct{}
+
+func WithAccountPool(ctx context.Context, category string) context.Context {
+	return context.WithValue(ctx, accountPoolContextKey{}, category)
+}
+func AccountPoolFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	category, _ := ctx.Value(accountPoolContextKey{}).(string)
+	return category
+}
+func ValidAccountPool(category string) bool {
+	switch category {
+	case "plus", "pro", "degraded", "unassigned":
+		return true
+	}
+	return false
+}
+
+// AccountPool keeps explicit classifications and derives older credentials from their subscription.
+func (a *Auth) AccountPool() string {
+	if a == nil {
+		return "unassigned"
+	}
+	category, _ := a.Metadata["account_pool"].(string)
+	if category == "degraded" || category == "unassigned" {
+		return category
+	}
+	plan := a.Attributes["plan_type"]
+	if plan == "" {
+		plan, _ = a.Metadata["plan_type"].(string)
+	}
+	switch strings.ToLower(strings.TrimSpace(plan)) {
+	case "plus":
+		return "plus"
+	case "pro":
+		return "pro"
+	}
+	if ValidAccountPool(category) {
+		return category
+	}
+	return "unassigned"
+}
 
 func WithChannelPool(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, channelPoolContextKey{}, id)
@@ -104,6 +148,7 @@ func (a *Auth) ChannelPool() string {
 
 type authSelectionEligibility struct {
 	channelPool      string
+	accountPool      string
 	requiredKind     string
 	credentialPolicy string
 	disallowFreeAuth bool
@@ -130,6 +175,7 @@ func authSelectionEligibilityForRequest(ctx context.Context, opts cliproxyexecut
 	if ctx != nil {
 		eligibility.requiredKind, _ = ctx.Value(requiredAuthKindContextKey{}).(string)
 		eligibility.channelPool = ChannelPoolFromContext(ctx)
+		eligibility.accountPool = AccountPoolFromContext(ctx)
 		eligibility.credentialPolicy, _ = ctx.Value(credentialPolicyContextKey{}).(string)
 	}
 	return eligibility
@@ -137,6 +183,9 @@ func authSelectionEligibilityForRequest(ctx context.Context, opts cliproxyexecut
 
 func (e authSelectionEligibility) allows(auth *Auth) bool {
 	if auth == nil || e.channelPool != auth.ChannelPool() {
+		return false
+	}
+	if e.accountPool != "" && auth.AccountPool() != e.accountPool {
 		return false
 	}
 	if e.requiredKind != "" && auth.AuthKind() != e.requiredKind {

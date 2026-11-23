@@ -42,3 +42,45 @@ func TestChannelPoolNormalStreamAndFallback(t *testing.T) {
 		t.Fatal("cross-pool pin accepted")
 	}
 }
+
+func TestSharedChannelPoolSelectsOnlyRequestedAccountCategory(t *testing.T) {
+	plus, pro, degraded := newIssue7521Auth("plus"), newIssue7521Auth("pro"), newIssue7521Auth("degraded")
+	plus.Metadata = map[string]any{"channel_pool_id": "shared", "account_pool": "pro"}
+	plus.Attributes = map[string]string{"plan_type": "plus"}
+	pro.Metadata = map[string]any{"channel_pool_id": "shared", "account_pool": "pro"}
+	degraded.Metadata = map[string]any{"channel_pool_id": "shared", "account_pool": "degraded", "plan_type": "pro"}
+	executor := &authFallbackExecutor{id: "claude"}
+	manager := newIssue7521Manager(t, nil, executor, plus, pro, degraded)
+	manager.SetRetryConfig(0, 0, 0)
+	req := exec.Request{Model: issue7521PoolModel}
+	for _, category := range []string{"plus", "pro", "degraded", "unassigned"} {
+		ctx := WithAccountPool(WithChannelPool(t.Context(), "shared"), category)
+		res, err := manager.Execute(ctx, []string{"claude"}, req, exec.Options{})
+		if category == "unassigned" {
+			if err == nil {
+				t.Fatal("empty category fell back to another subscription")
+			}
+			continue
+		}
+		if err != nil || string(res.Payload) != category {
+			t.Fatalf("category %s: %v %s", category, err, res.Payload)
+		}
+		stream, err := manager.ExecuteStream(ctx, []string{"claude"}, req, exec.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for chunk := range stream.Chunks {
+			if string(chunk.Payload) != category {
+				t.Fatalf("wrong streaming category: %s", chunk.Payload)
+			}
+		}
+	}
+	ctx := WithAccountPool(WithChannelPool(t.Context(), "shared"), "plus")
+	if _, err := manager.Execute(ctx, []string{"claude"}, req, exec.Options{Metadata: map[string]any{exec.PinnedAuthMetadataKey: pro.ID}}); err == nil {
+		t.Fatal("cross-category pin accepted")
+	}
+	executor.executeErrors = map[string]error{plus.ID: errors.New("fixture failed")}
+	if _, err := manager.Execute(ctx, []string{"claude"}, req, exec.Options{}); err == nil {
+		t.Fatal("cross-category fallback accepted")
+	}
+}

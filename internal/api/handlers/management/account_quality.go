@@ -131,27 +131,25 @@ func (h *Handler) CheckAccountQuality(c *gin.Context) {
 				}
 			}
 		} else if err != nil {
-			var status interface{ StatusCode() int }
-			if errors.As(err, &status) && status.StatusCode() == http.StatusTooManyRequests {
-				check.Result = "rate_limited"
-			}
+			check.Result = qualityFailureResult(err)
 		}
 	}
 	stored, committed, err := h.authManager.Modify(c.Request.Context(), a.ID, a.RegistrationEpoch, func(current *coreauth.Auth) error {
-		if current.ChannelPool() != a.ChannelPool() || current.Disabled || current.CredentialVersion != a.CredentialVersion || accountCheckFromAuth(current).Sequence != prev.Sequence {
+		if current.ChannelPool() != a.ChannelPool() || current.Disabled || current.CredentialVersion != a.CredentialVersion || current.AccountPool() != a.AccountPool() || accountCheckFromAuth(current).Sequence != prev.Sequence {
 			return errors.New("account changed during check")
 		}
-		if current.RequiresSignIn {
+		if current.RequiresSignIn && check.Result != "account_banned" {
 			check.Result = "login_required"
-		} else if check.Result == "login_required" {
+		} else if check.Result == "login_required" && a.RequiresSignIn {
 			return errors.New("account reauthorized during check")
 		}
 		if current.Metadata == nil {
 			current.Metadata = make(map[string]any)
 		}
 		current.Metadata["account_check"] = check
-		if check.Result == "login_required" {
+		if check.Result == "login_required" || check.Result == "account_banned" {
 			applyAuthDisabledState(current, true)
+			current.StatusMessage = "automatically disabled after account quality check: " + check.Result
 		}
 		return nil
 	})
@@ -166,4 +164,44 @@ func (h *Handler) CheckAccountQuality(c *gin.Context) {
 		}
 	}
 	c.JSON(200, gin.H{"check": check, "disabled": stored.Disabled})
+}
+
+func qualityFailureResult(err error) string {
+	var status interface{ StatusCode() int }
+	if !errors.As(err, &status) {
+		return "inconclusive"
+	}
+	code := ""
+	message := err.Error()
+	var upstream *coreauth.Error
+	if errors.As(err, &upstream) {
+		code = upstream.Code
+		message = upstream.Message
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(message), &body) == nil {
+		if body.Error.Code != "" {
+			code = body.Error.Code
+		} else if body.Error.Type != "" {
+			code = body.Error.Type
+		}
+	}
+	if status.StatusCode() == http.StatusForbidden || status.StatusCode() == http.StatusUnauthorized {
+		switch code {
+		case "account_deactivated", "account_suspended", "account_banned", "user_deactivated":
+			return "account_banned"
+		}
+	}
+	if status.StatusCode() == http.StatusUnauthorized || coreauth.IsTerminalAuthError(err) || code == "invalid_grant" {
+		return "login_required"
+	}
+	if status.StatusCode() == http.StatusTooManyRequests {
+		return "rate_limited"
+	}
+	return "inconclusive"
 }

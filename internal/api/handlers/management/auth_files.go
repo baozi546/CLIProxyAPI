@@ -693,7 +693,7 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 				entry["pool_managed_limit"] = true
 			}
 		}
-		entry["account_pool"], _ = auth.Metadata["account_pool"].(string)
+		entry["account_pool"] = auth.AccountPool()
 		entry["channel_pool_id"], _ = auth.Metadata["channel_pool_id"].(string)
 		entry["account_check"] = accountCheckFromAuth(auth)
 	}
