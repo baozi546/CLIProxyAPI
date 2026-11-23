@@ -117,5 +117,11 @@ func (h *Handler) CheckAccountQuality(c *gin.Context) {
 		c.JSON(409, gin.H{"error": "account changed or result could not be saved"})
 		return
 	}
+	if stored.Disabled && h.postAuthPersistHook != nil {
+		if err := h.postAuthPersistHook(c.Request.Context(), stored); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account disabled; runtime synchronization failed"})
+			return
+		}
+	}
 	c.JSON(200, gin.H{"check": check, "disabled": stored.Disabled})
 }
