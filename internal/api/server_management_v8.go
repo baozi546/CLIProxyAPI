@@ -45,6 +45,7 @@ func (s *Server) registerManagementV8Routes() {
 
 	v8.GET("/credentials", s.mgmt.ListAuthFiles)
 	v8.PUT("/channel-pools/:pool", s.mgmt.EnsureChannelPool)
+	v8.POST("/channel-pools/:pool/restore", s.mgmt.RestoreChannelAccount)
 	v8.POST("/credentials/quality-check", s.mgmt.CheckAccountQuality)
 	v8.POST("/credentials", s.mgmt.UploadAuthFileV8)
 	v8.DELETE("/credentials", s.mgmt.DeleteAuthFileV8)

@@ -324,6 +324,10 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 func (h *Handler) writeAuthFileV8(ctx context.Context, name string, data []byte) error {
 	h.v8AuthUploadMu.Lock()
 	defer h.v8AuthUploadMu.Unlock()
+	return h.writeAuthFileV8Locked(ctx, name, data, "")
+}
+
+func (h *Handler) writeAuthFileV8Locked(ctx context.Context, name string, data []byte, restorePool string) error {
 
 	dst := filepath.Join(h.currentHandlerAuthDir(), filepath.Base(name))
 	if !filepath.IsAbs(dst) {
@@ -337,12 +341,15 @@ func (h *Handler) writeAuthFileV8(ctx context.Context, name string, data []byte)
 	if errBuild != nil {
 		return errBuild
 	}
+	if restorePool != "" && (len(auths) != 1 || auths[0] == nil || auths[0].Provider != "codex" || !auths[0].Disabled || auths[0].ChannelPool() != restorePool) {
+		return fmt.Errorf("credential loader did not preserve pool or disabled state")
+	}
 	needCodexLock := h.shouldLockCodexAuthFileV8(dst, metadata, auths)
 
 	release := h.beginSIWCFileMutation(ctx, dst)
 	defer release()
 
-	if errWrite := h.writeAuthFileBytesV8(dst, data, needCodexLock); errWrite != nil {
+	if errWrite := h.writeAuthFileBytesV8(dst, data, needCodexLock, restorePool != ""); errWrite != nil {
 		return fmt.Errorf("failed to write file: %w", errWrite)
 	}
 	if errReconcile := h.reconcileV8UploadedAuths(ctx, dst, auths); errReconcile != nil {
@@ -361,17 +368,17 @@ func (h *Handler) writeAuthFileV8(ctx context.Context, name string, data []byte)
 	return nil
 }
 
-func (h *Handler) writeAuthFileBytesV8(dst string, data []byte, lockCodex bool) error {
+func (h *Handler) writeAuthFileBytesV8(dst string, data []byte, lockCodex, createOnly bool) error {
 	if lockCodex {
 		return codex.WithFileLock(dst, func() error {
-			return writeV8AuthFilePayload(dst, data)
+			return writeV8AuthFilePayload(dst, data, createOnly)
 		})
 	}
-	return writeV8AuthFilePayload(dst, data)
+	return writeV8AuthFilePayload(dst, data, createOnly)
 }
 
-func writeV8AuthFilePayload(dst string, data []byte) error {
-	if info, errLstat := os.Lstat(dst); errLstat == nil && info.Mode()&os.ModeSymlink != 0 {
+func writeV8AuthFilePayload(dst string, data []byte, createOnly bool) error {
+	if info, errLstat := os.Lstat(dst); !createOnly && errLstat == nil && info.Mode()&os.ModeSymlink != 0 {
 		return os.WriteFile(dst, data, 0o600)
 	}
 	dir := filepath.Dir(dst)
@@ -410,6 +417,10 @@ func writeV8AuthFilePayload(dst string, data []byte) error {
 	}
 	if errClose := tmp.Close(); errClose != nil {
 		return errClose
+	}
+	if createOnly {
+		// Publish a complete file without replacing a concurrently created credential.
+		return os.Link(tmpPath, dst)
 	}
 	if errRename := os.Rename(tmpPath, dst); errRename != nil {
 		return errRename
