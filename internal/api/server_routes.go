@@ -66,6 +66,12 @@ func (s *Server) setupRoutes() {
 	s.museCodeHandler.SetModelListHooks(s.loadMuseCodeHomeModels, s.writeModelListResponse)
 
 	// OpenAI compatible API routes
+	pooled := s.engine.Group("/channel-pools/:pool/v1", AuthMiddleware(s.accessManager), s.channelPoolScope)
+	pooled.GET("/models", s.channelPoolModels)
+	pooled.POST("/chat/completions", openaiHandlers.ChatCompletions)
+	pooled.POST("/completions", openaiHandlers.Completions)
+	pooled.POST("/responses", openaiResponsesHandlers.Responses)
+	pooled.POST("/responses/compact", openaiResponsesHandlers.Compact)
 	v1 := s.engine.Group("/v1")
 	v1.Use(AuthMiddleware(s.accessManager))
 	{

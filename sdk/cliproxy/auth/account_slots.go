@@ -44,7 +44,7 @@ func (m *Manager) acquireAccount(ctx context.Context, a *Auth) (func(), error) {
 		slots.Lock()
 		m.mu.RLock()
 		current := m.auths[a.ID]
-		if current == nil || current.Disabled || current.Status == StatusDisabled || current.RegistrationEpoch != a.RegistrationEpoch {
+		if current == nil || current.Disabled || current.Status == StatusDisabled || current.RegistrationEpoch != a.RegistrationEpoch || current.ChannelPool() != ChannelPoolFromContext(ctx) {
 			m.mu.RUnlock()
 			slots.Unlock()
 			return nil, &Error{Code: "credential_unavailable", Message: "credential changed while waiting for admission", HTTPStatus: 409}

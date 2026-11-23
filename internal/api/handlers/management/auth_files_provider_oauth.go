@@ -264,8 +264,14 @@ func validAccountPool(pool string) bool {
 }
 
 func (h *Handler) RequestCodexToken(c *gin.Context) {
+	meta := oauthSessionExtraMetadataFromContext(c)
+	channelPool, _ := meta["channel_pool_id"].(string)
+	if _, specified := meta["channel_pool_id"]; specified && !h.HasChannelPool(channelPool) {
+		c.JSON(400, gin.H{"error": "unknown channel pool"})
+		return
+	}
 	pool := ""
-	if raw, exists := oauthSessionExtraMetadataFromContext(c)["account_pool"]; exists {
+	if raw, exists := meta["account_pool"]; exists {
 		pool, _ = raw.(string)
 		if !validAccountPool(pool) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account pool"})
@@ -418,6 +424,9 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 				"plan_type": planType,
 			},
 		}
+		if channelPool != "" {
+			record.Metadata["channel_pool_id"] = channelPool
+		}
 		if pool != "" {
 			record.Metadata["account_pool"] = pool
 		}
@@ -435,6 +444,9 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 	respPayload := gin.H{"status": "ok", "url": authURL, "state": state}
 	if pool != "" {
 		respPayload["account_pool"] = pool
+	}
+	if channelPool != "" {
+		respPayload["channel_pool_id"] = channelPool
 	}
 	if hasSessionTarget {
 		respPayload["target_auth_id"] = sessionTarget.AuthID
@@ -575,6 +587,19 @@ func (h *Handler) commitAndCompleteBuiltinOAuthSession(ctx context.Context, stat
 			return "", false
 		}
 		ctx = withTargetedOAuthSave(ctx)
+	}
+	if sessionProvider == "codex" {
+		h.codexPoolSaveMu.Lock()
+		defer h.codexPoolSaveMu.Unlock()
+		if requested := record.ChannelPool(); requested != "" {
+			// Look up the saved ownership while other sign-in commits wait.
+			prior := &coreauth.Auth{ID: record.ID, FileName: record.FileName, Attributes: record.Attributes}
+			h.mergeExistingAuthFileMetadata(prior)
+			if owner := prior.ChannelPool(); owner != "" && owner != requested {
+				SetOAuthSessionError(state, "Account already belongs to another channel pool")
+				return "", false
+			}
+		}
 	}
 
 	var hadPrevAuth bool

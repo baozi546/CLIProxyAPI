@@ -117,8 +117,14 @@ func TestCodexOAuthPoolIsBoundToIndividualLogin(t *testing.T) {
 	const path = "/v8/management/oauth/auth-url"
 	router.POST(path, h.StartOAuthV8)
 	states := make(map[string]string)
+	channelPools := map[string]string{"plus": strings.Repeat("a", 32), "pro": strings.Repeat("b", 32)}
+	for _, id := range channelPools {
+		if err := os.MkdirAll(h.channelPoolPath(id), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, pool := range []string{"bogus", "plus", "pro"} {
-		body := strings.NewReader(`{"provider":"codex","account_pool":"` + pool + `"}`)
+		body := strings.NewReader(`{"provider":"codex","account_pool":"` + pool + `","channel_pool_id":"` + channelPools[pool] + `"}`)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, body))
 		if pool == "bogus" {
@@ -152,9 +158,35 @@ func TestCodexOAuthPoolIsBoundToIndividualLogin(t *testing.T) {
 		if err := json.Unmarshal(data, &saved); err != nil {
 			t.Fatal(err)
 		}
-		if saved["account_pool"] != pool || saved["plan_type"] != codex.DefaultPlanType {
+		if saved["channel_pool_id"] != channelPools[pool] || saved["account_pool"] != pool || saved["plan_type"] != codex.DefaultPlanType {
 			t.Fatalf("unexpected saved pool %v or plan %v", saved["account_pool"], saved["plan_type"])
 		}
+	}
+}
+
+func TestCodexPoolConflictPreservesSavedCredential(t *testing.T) {
+	dir := t.TempDir()
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: dir}, nil)
+	name := "same.json"
+	original := []byte(`{"type":"codex","channel_pool_id":"first"}`)
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	const state = "pool-conflict-test"
+	RegisterOAuthSessionWithProxy(state, "codex", "")
+	defer CompleteOAuthSession(state)
+	record := &coreauth.Auth{ID: name, FileName: name, Provider: "codex", Metadata: map[string]any{"channel_pool_id": "second"}}
+	if _, saved := h.commitAndCompleteBuiltinOAuthSession(t.Context(), state, "codex", "", record, "save failed", true); saved {
+		t.Fatal("conflicting sign-in saved")
+	}
+	_, status, _ := GetOAuthSession(state)
+	if status != "Account already belongs to another channel pool" {
+		t.Fatalf("unexpected status %s", status)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != string(original) {
+		t.Fatal("existing account changed")
 	}
 }
 

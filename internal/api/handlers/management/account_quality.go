@@ -65,7 +65,7 @@ func (h *Handler) CheckAccountQuality(c *gin.Context) {
 		check.Result = "login_required"
 	} else {
 		payload, _ := json.Marshal(gin.H{"model": input.Model, "messages": []gin.H{{"role": "user", "content": q.prompt}}, "stream": false})
-		resp, err := h.authManager.Execute(c.Request.Context(), []string{a.Provider}, exec.Request{Model: input.Model, Payload: payload}, exec.Options{SourceFormat: translator.FormatOpenAI, ResponseFormat: translator.FormatOpenAI, OriginalRequest: payload, Metadata: map[string]any{exec.PinnedAuthMetadataKey: a.ID}})
+		resp, err := h.authManager.Execute(coreauth.WithChannelPool(c.Request.Context(), a.ChannelPool()), []string{a.Provider}, exec.Request{Model: input.Model, Payload: payload}, exec.Options{SourceFormat: translator.FormatOpenAI, ResponseFormat: translator.FormatOpenAI, OriginalRequest: payload, Metadata: map[string]any{exec.PinnedAuthMetadataKey: a.ID}})
 		if c.Request.Context().Err() != nil {
 			return
 		}

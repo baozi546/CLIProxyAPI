@@ -688,6 +688,7 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 	if quota.v8 {
 		entry["account_concurrency"] = coreauth.AccountConcurrencyLimit(auth)
 		entry["account_pool"], _ = auth.Metadata["account_pool"].(string)
+		entry["channel_pool_id"], _ = auth.Metadata["channel_pool_id"].(string)
 		entry["account_check"] = accountCheckFromAuth(auth)
 	}
 	entry["failed"] = auth.Failed

@@ -393,6 +393,8 @@ func applyAuthFileFieldsPatch(targetAuth *coreauth.Auth, req map[string]json.Raw
 			if fieldPath != "account_pool" || !ok || !validAccountPool(pool) {
 				return &authFileFieldPatchError{message: "invalid account pool"}
 			}
+		case "channel_pool_id":
+			return &authFileFieldPatchError{message: "channel pool is set at sign-in"}
 		case "account_check":
 			return &authFileFieldPatchError{message: "account_check is read-only"}
 		}

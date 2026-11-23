@@ -82,8 +82,28 @@ func isBuiltInSelector(selector Selector) bool {
 
 type requiredAuthKindContextKey struct{}
 type credentialPolicyContextKey struct{}
+type channelPoolContextKey struct{}
+
+func WithChannelPool(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, channelPoolContextKey{}, id)
+}
+func ChannelPoolFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(channelPoolContextKey{}).(string)
+	return id
+}
+func (a *Auth) ChannelPool() string {
+	if a == nil {
+		return ""
+	}
+	id, _ := a.Metadata["channel_pool_id"].(string)
+	return id
+}
 
 type authSelectionEligibility struct {
+	channelPool      string
 	requiredKind     string
 	credentialPolicy string
 	disallowFreeAuth bool
@@ -109,13 +129,14 @@ func authSelectionEligibilityForRequest(ctx context.Context, opts cliproxyexecut
 	eligibility := authSelectionEligibility{disallowFreeAuth: disallowFreeAuthFromMetadata(opts.Metadata)}
 	if ctx != nil {
 		eligibility.requiredKind, _ = ctx.Value(requiredAuthKindContextKey{}).(string)
+		eligibility.channelPool = ChannelPoolFromContext(ctx)
 		eligibility.credentialPolicy, _ = ctx.Value(credentialPolicyContextKey{}).(string)
 	}
 	return eligibility
 }
 
 func (e authSelectionEligibility) allows(auth *Auth) bool {
-	if auth == nil {
+	if auth == nil || e.channelPool != auth.ChannelPool() {
 		return false
 	}
 	if e.requiredKind != "" && auth.AuthKind() != e.requiredKind {
