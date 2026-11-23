@@ -255,7 +255,23 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
 	c.JSON(200, respPayload)
 }
 
+func validAccountPool(pool string) bool {
+	switch pool {
+	case "unassigned", "plus", "pro", "degraded":
+		return true
+	}
+	return false
+}
+
 func (h *Handler) RequestCodexToken(c *gin.Context) {
+	pool := ""
+	if raw, exists := oauthSessionExtraMetadataFromContext(c)["account_pool"]; exists {
+		pool, _ = raw.(string)
+		if !validAccountPool(pool) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account pool"})
+			return
+		}
+	}
 	ctx := context.Background()
 	ctx = PopulateAuthContext(ctx, c)
 
@@ -402,6 +418,9 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 				"plan_type": planType,
 			},
 		}
+		if pool != "" {
+			record.Metadata["account_pool"] = pool
+		}
 		savedPath, okSaved := h.commitAndCompleteBuiltinOAuthSession(ctx, state, "codex", sessionProxyURL, record, "Failed to save authentication tokens", true)
 		if !okSaved {
 			return
@@ -414,6 +433,9 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 	}()
 
 	respPayload := gin.H{"status": "ok", "url": authURL, "state": state}
+	if pool != "" {
+		respPayload["account_pool"] = pool
+	}
 	if hasSessionTarget {
 		respPayload["target_auth_id"] = sessionTarget.AuthID
 	}

@@ -390,7 +390,7 @@ func applyAuthFileFieldsPatch(targetAuth *coreauth.Auth, req map[string]json.Raw
 			}
 		case "account_pool":
 			pool, ok := value.(string)
-			if fieldPath != "account_pool" || !ok || (pool != "unassigned" && pool != "plus" && pool != "pro" && pool != "degraded") {
+			if fieldPath != "account_pool" || !ok || !validAccountPool(pool) {
 				return &authFileFieldPatchError{message: "invalid account pool"}
 			}
 		case "account_check":

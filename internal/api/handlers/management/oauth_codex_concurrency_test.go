@@ -107,6 +107,57 @@ func requestCodexTokenState(t *testing.T, router http.Handler) string {
 	return payload.State
 }
 
+func TestCodexOAuthPoolIsBoundToIndividualLogin(t *testing.T) {
+	original := newCodexOAuthService
+	newCodexOAuthService = func(*config.Config) codexOAuthService { return &fakeCodexOAuthService{} }
+	t.Cleanup(func() { newCodexOAuthService = original })
+	dir := t.TempDir()
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: dir}, nil)
+	router := gin.New()
+	const path = "/v8/management/oauth/auth-url"
+	router.POST(path, h.StartOAuthV8)
+	states := make(map[string]string)
+	for _, pool := range []string{"bogus", "plus", "pro"} {
+		body := strings.NewReader(`{"provider":"codex","account_pool":"` + pool + `"}`)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, body))
+		if pool == "bogus" {
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("invalid pool returned %d", w.Code)
+			}
+			continue
+		}
+		var start struct {
+			State string `json:"state"`
+			Pool  string `json:"account_pool"`
+		}
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &start) != nil || start.State == "" || start.Pool != pool {
+			t.Fatalf("unexpected start: %s", w.Body.String())
+		}
+		states[pool] = start.State
+		defer CompleteOAuthSession(start.State)
+	}
+	for _, pool := range []string{"pro", "plus"} {
+		state := states[pool]
+		if _, err := WriteOAuthCallbackFileForPendingSession(dir, "codex", state, pool, ""); err != nil {
+			t.Fatal(err)
+		}
+		waitForOAuthSessionDone(t, state)
+		file := codex.CredentialFileName("codex-"+pool+"@example.test", codex.DefaultPlanType, "", true)
+		data, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var saved map[string]any
+		if err := json.Unmarshal(data, &saved); err != nil {
+			t.Fatal(err)
+		}
+		if saved["account_pool"] != pool || saved["plan_type"] != codex.DefaultPlanType {
+			t.Fatalf("unexpected saved pool %v or plan %v", saved["account_pool"], saved["plan_type"])
+		}
+	}
+}
+
 func waitForOAuthSessionDone(t *testing.T, state string) {
 	t.Helper()
 
