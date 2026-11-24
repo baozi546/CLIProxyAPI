@@ -687,7 +687,10 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 	entry["success"] = auth.Success
 	if quota.v8 {
 		entry["account_concurrency"] = coreauth.AccountConcurrencyLimit(auth)
-		if pool := auth.ChannelPool(); pool != "" {
+		if override, err := coreauth.ReadPoolAccountLimit(h.currentHandlerAuthDir(), coreauth.SharedChannelPoolID); err == nil && override != nil {
+			entry["account_concurrency"] = *override
+			entry["pool_managed_limit"] = true
+		} else if pool := auth.ChannelPool(); pool != "" {
 			if override, err := coreauth.ReadPoolAccountLimit(h.currentHandlerAuthDir(), pool); err == nil && override != nil {
 				entry["account_concurrency"] = *override
 				entry["pool_managed_limit"] = true

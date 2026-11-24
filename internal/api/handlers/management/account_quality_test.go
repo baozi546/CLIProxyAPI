@@ -17,7 +17,7 @@ import (
 func TestAccountCheckRequiresSignInDisablesOnlyTarget(t *testing.T) {
 	manager := coreauth.NewManager(nil, nil, nil)
 	for _, id := range []string{"needs-login", "healthy"} {
-		_, err := manager.Register(t.Context(), &coreauth.Auth{ID: id, FileName: id, Provider: "codex", Status: coreauth.StatusActive, RequiresSignIn: id == "needs-login"})
+		_, err := manager.Register(t.Context(), &coreauth.Auth{ID: id, FileName: id, Provider: "codex", Status: coreauth.StatusActive, RequiresSignIn: id == "needs-login", Metadata: map[string]any{"channel_pool_id": "legacy"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -27,7 +27,7 @@ func TestAccountCheckRequiresSignInDisablesOnlyTarget(t *testing.T) {
 	h.SetPostAuthPersistHook(func(_ context.Context, a *coreauth.Auth) error { synced = a.ID; return nil })
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/v8/management/credentials/quality-check", strings.NewReader(`{"name":"needs-login","model":"fixture"}`))
+	c.Request = httptest.NewRequest("POST", "/v8/management/credentials/quality-check", strings.NewReader(`{"name":"needs-login","model":"fixture","channel_pool_id":"`+coreauth.SharedChannelPoolID+`"}`))
 	h.CheckAccountQuality(c)
 	target, _ := manager.GetByID("needs-login")
 	other, _ := manager.GetByID("healthy")

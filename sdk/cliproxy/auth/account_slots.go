@@ -65,14 +65,18 @@ func (m *Manager) acquireAccount(ctx context.Context, a *Auth) (func(), error) {
 		return func() {}, nil
 	}
 	slots := &m.accountSlots
+	eligibility := authSelectionEligibilityForRequest(ctx, exec.Options{})
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		var override *int
-		if cfg := m.runtimeConfigSnapshot(); cfg != nil && a.ChannelPool() != "" {
+		if cfg := m.runtimeConfigSnapshot(); cfg != nil {
 			var err error
-			override, err = ReadPoolAccountLimit(cfg.AuthDir, a.ChannelPool())
+			override, err = ReadPoolAccountLimit(cfg.AuthDir, SharedChannelPoolID)
+			if err == nil && override == nil && a.ChannelPool() != "" {
+				override, err = ReadPoolAccountLimit(cfg.AuthDir, a.ChannelPool())
+			}
 			if err != nil {
 				return nil, &Error{Code: "pool_policy_unavailable", Message: "account limit unavailable", HTTPStatus: 503}
 			}
@@ -80,7 +84,7 @@ func (m *Manager) acquireAccount(ctx context.Context, a *Auth) (func(), error) {
 		slots.Lock()
 		m.mu.RLock()
 		current := m.auths[a.ID]
-		if current == nil || current.Disabled || current.Status == StatusDisabled || current.RegistrationEpoch != a.RegistrationEpoch || current.ChannelPool() != ChannelPoolFromContext(ctx) {
+		if current == nil || current.Disabled || current.Status == StatusDisabled || current.RegistrationEpoch != a.RegistrationEpoch || !eligibility.allows(current) {
 			m.mu.RUnlock()
 			slots.Unlock()
 			return nil, &Error{Code: "credential_unavailable", Message: "credential changed while waiting for admission", HTTPStatus: 409}

@@ -13,6 +13,7 @@ import (
 	"github.com/MoeForge/moego/json"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
 // Restore only the native OAuth fields and account settings. Operational routing,
@@ -81,7 +82,7 @@ func (h *Handler) RestoreChannelAccount(c *gin.Context) {
 		email, id := authIdentityEmailAndAccountID(a)
 		if (id == b.AccountID && (email == "" || strings.EqualFold(email, b.Email))) || (id == "" && strings.EqualFold(email, b.Email)) {
 			status := "exists"
-			if a.ChannelPool() != pool {
+			if pool != coreauth.SharedChannelPoolID && a.ChannelPool() != pool {
 				status = "other_pool"
 			}
 			c.JSON(200, gin.H{"status": status})

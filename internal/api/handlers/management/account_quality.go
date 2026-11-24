@@ -87,7 +87,7 @@ func (h *Handler) CheckAccountQuality(c *gin.Context) {
 		c.JSON(409, gin.H{"error": "active Codex account required"})
 		return
 	}
-	if input.Pool != "" && input.Pool != a.ChannelPool() {
+	if input.Pool != "" && input.Pool != coreauth.SharedChannelPoolID && input.Pool != a.ChannelPool() {
 		c.JSON(409, gin.H{"error": "account pool changed"})
 		return
 	}

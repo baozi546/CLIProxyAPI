@@ -92,3 +92,36 @@ func TestPoolLimitAppliesPerAccountAndSurvivesManagerRestart(t *testing.T) {
 		}
 	}
 }
+
+func TestSharedPoolLimitAppliesToLegacyAccountsThroughEveryEndpoint(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".channel-pools", SharedChannelPoolID)
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "account-limit"), []byte("1"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		m := NewManager(nil, nil, nil)
+		m.SetConfig(&cfg.Config{AuthDir: dir})
+		a, err := m.Register(t.Context(), &Auth{ID: "legacy", Provider: "codex", Metadata: map[string]any{"channel_pool_id": "legacy", "account_concurrency": 9}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, pool := range []string{"", SharedChannelPoolID, "legacy"} {
+			ctx := WithChannelPool(t.Context(), pool)
+			free, err := m.acquireAccount(ctx, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			waiting, cancel := context.WithTimeout(ctx, time.Second)
+			_, err = m.acquireAccount(waiting, a)
+			cancel()
+			free()
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("pool %q exceeded the shared account limit: %v", pool, err)
+			}
+		}
+	})
+}

@@ -28,7 +28,7 @@ func (s *Server) channelPoolScope(c *gin.Context) {
 	c.Request = c.Request.WithContext(auth.WithChannelPool(c.Request.Context(), id))
 	if c.Request.Method != http.MethodGet {
 		for _, member := range s.handlers.AuthManager.List() {
-			if member.ChannelPool() == id && (category == "" || member.AccountPool() == category) && !member.Disabled && member.Status != auth.StatusDisabled {
+			if (id == auth.SharedChannelPoolID || member.ChannelPool() == id) && (category == "" || member.AccountPool() == category) && !member.Disabled && member.Status != auth.StatusDisabled {
 				c.Next()
 				return
 			}
@@ -43,7 +43,7 @@ func (s *Server) channelPoolModels(c *gin.Context) {
 	ids := map[string]bool{}
 	pool := c.Param("pool")
 	for _, a := range s.handlers.AuthManager.List() {
-		if a.Disabled || a.Status == auth.StatusDisabled || a.ChannelPool() != pool || (auth.AccountPoolFromContext(c.Request.Context()) != "" && a.AccountPool() != auth.AccountPoolFromContext(c.Request.Context())) {
+		if a.Disabled || a.Status == auth.StatusDisabled || (pool != auth.SharedChannelPoolID && a.ChannelPool() != pool) || (auth.AccountPoolFromContext(c.Request.Context()) != "" && a.AccountPool() != auth.AccountPoolFromContext(c.Request.Context())) {
 			continue
 		}
 		for _, model := range registry.GetGlobalRegistry().GetModelsForClient(a.ID) {

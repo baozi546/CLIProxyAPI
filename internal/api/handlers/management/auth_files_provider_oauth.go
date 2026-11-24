@@ -591,7 +591,7 @@ func (h *Handler) commitAndCompleteBuiltinOAuthSession(ctx context.Context, stat
 	if sessionProvider == "codex" {
 		h.codexPoolSaveMu.Lock()
 		defer h.codexPoolSaveMu.Unlock()
-		if requested := record.ChannelPool(); requested != "" {
+		if requested := record.ChannelPool(); requested != "" && requested != coreauth.SharedChannelPoolID {
 			// Look up the saved ownership while other sign-in commits wait.
 			prior := &coreauth.Auth{ID: record.ID, FileName: record.FileName, Attributes: record.Attributes}
 			h.mergeExistingAuthFileMetadata(prior)

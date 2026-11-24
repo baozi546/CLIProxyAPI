@@ -128,6 +128,9 @@ func (a *Auth) AccountPool() string {
 	return "unassigned"
 }
 
+// SharedChannelPoolID identifies the standalone CPA instance's complete account set.
+const SharedChannelPoolID = "00000000000000000000000000000000"
+
 func WithChannelPool(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, channelPoolContextKey{}, id)
 }
@@ -182,7 +185,7 @@ func authSelectionEligibilityForRequest(ctx context.Context, opts cliproxyexecut
 }
 
 func (e authSelectionEligibility) allows(auth *Auth) bool {
-	if auth == nil || e.channelPool != auth.ChannelPool() {
+	if auth == nil || (e.channelPool != "" && e.channelPool != SharedChannelPoolID && e.channelPool != auth.ChannelPool()) {
 		return false
 	}
 	if e.accountPool != "" && auth.AccountPool() != e.accountPool {

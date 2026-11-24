@@ -15,7 +15,7 @@ func TestChannelPoolNormalStreamAndFallback(t *testing.T) {
 	manager.SetRetryConfig(0, 0, 0)
 	req := exec.Request{Model: issue7521PoolModel}
 	providers := []string{"claude"}
-	for _, id := range []string{"first", "empty", ""} {
+	for _, id := range []string{"first", "empty"} {
 		if _, err := manager.Execute(WithChannelPool(t.Context(), id), providers, req, exec.Options{}); err == nil {
 			t.Fatalf("unexpected success in pool %q", id)
 		}
@@ -40,6 +40,34 @@ func TestChannelPoolNormalStreamAndFallback(t *testing.T) {
 	}
 	if _, err := manager.Execute(ctx, providers, req, exec.Options{Metadata: map[string]any{exec.PinnedAuthMetadataKey: a.ID}}); err == nil {
 		t.Fatal("cross-pool pin accepted")
+	}
+}
+
+func TestDefaultEndpointSharesAccountsAcrossLegacyPools(t *testing.T) {
+	plus, pro := newIssue7521Auth("plus"), newIssue7521Auth("pro")
+	plus.Metadata = map[string]any{"channel_pool_id": "legacy-plus", "account_pool": "plus"}
+	pro.Metadata = map[string]any{"channel_pool_id": "legacy-pro", "account_pool": "pro"}
+	executor := &authFallbackExecutor{id: "claude"}
+	manager := newIssue7521Manager(t, nil, executor, plus, pro)
+	req := exec.Request{Model: issue7521PoolModel}
+	for _, pool := range []string{"", "00000000000000000000000000000000"} {
+		ctx := WithAccountPool(WithChannelPool(t.Context(), pool), "pro")
+		res, err := manager.Execute(ctx, []string{"claude"}, req, exec.Options{})
+		if err != nil || string(res.Payload) != pro.ID {
+			t.Fatalf("shared endpoint %q: %v %s", pool, err, res.Payload)
+		}
+		stream, err := manager.ExecuteStream(ctx, []string{"claude"}, req, exec.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for chunk := range stream.Chunks {
+			if string(chunk.Payload) != pro.ID {
+				t.Fatalf("wrong shared endpoint category: %s", chunk.Payload)
+			}
+		}
+		if _, err := manager.Execute(ctx, []string{"claude"}, req, exec.Options{Metadata: map[string]any{exec.PinnedAuthMetadataKey: plus.ID}}); err == nil {
+			t.Fatal("shared endpoint accepted a cross-category pin")
+		}
 	}
 }
 

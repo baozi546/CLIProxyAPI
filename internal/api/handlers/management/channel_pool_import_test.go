@@ -16,7 +16,7 @@ func TestRestoreChannelAccount(t *testing.T) {
 	dir := t.TempDir()
 	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: dir}, m)
 	p, q := strings.Repeat("a", 32), strings.Repeat("b", 32)
-	for _, pool := range []string{p, q} {
+	for _, pool := range []string{p, q, coreauth.SharedChannelPoolID} {
 		if err := os.MkdirAll(h.channelPoolPath(pool), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -29,7 +29,7 @@ func TestRestoreChannelAccount(t *testing.T) {
 		return w.Code, w.Body.String()
 	}
 	body := `{"type":"codex","email":"example@example.test","account_id":"fixture","refresh_token":"fixture-secret","disabled":false,"channel_pool_id":"forged","proxy_url":"https://invalid.test","account_concurrency":3}`
-	for _, tc := range []struct{ pool, body, status string }{{p, `{}`, "invalid"}, {p, body, "imported"}, {p, body, "exists"}, {q, body, "other_pool"}} {
+	for _, tc := range []struct{ pool, body, status string }{{p, `{}`, "invalid"}, {p, body, "imported"}, {p, body, "exists"}, {q, body, "other_pool"}, {coreauth.SharedChannelPoolID, body, "exists"}} {
 		code, result := restore(tc.pool, tc.body)
 		if code != 200 || result != `{"status":"`+tc.status+`"}` {
 			t.Fatalf("wanted %s, got %d %s", tc.status, code, result)
