@@ -695,6 +695,9 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 		if pool := coreauth.ChannelPoolFromContext(requestCtx); pool != "" {
 			parentCtx = coreauth.WithChannelPool(parentCtx, pool)
 		}
+		if category := coreauth.AccountPoolFromContext(requestCtx); category != "" {
+			parentCtx = coreauth.WithAccountPool(parentCtx, category)
+		}
 		parentCtx = logging.InheritDeferredCapture(parentCtx, requestCtx)
 	}
 	if c != nil && logging.DeferredAPICaptureFromContext(parentCtx) == nil && !logging.DeferredAPIRequestCaptureDisabled(parentCtx) {

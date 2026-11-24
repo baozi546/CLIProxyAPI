@@ -10,12 +10,37 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	coresession "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/session"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 	"golang.org/x/net/context"
 )
+
+func TestGetContextWithCancelPreservesAccountScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, category := range []string{"plus", "pro", "degraded", "unassigned"} {
+		t.Run(category, func(t *testing.T) {
+			ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			request := httptest.NewRequest(http.MethodPost, "/channel-pools/shared/categories/"+category+"/v1/chat/completions", nil)
+			requestCtx := coreauth.WithChannelPool(request.Context(), coreauth.SharedChannelPoolID)
+			requestCtx = coreauth.WithAccountPool(requestCtx, category)
+			ginCtx.Request = request.WithContext(requestCtx)
+
+			handler := &BaseAPIHandler{Cfg: &config.SDKConfig{}}
+			ctx, cancel := handler.GetContextWithCancel(nil, ginCtx, context.Background())
+			defer cancel()
+
+			if got := coreauth.ChannelPoolFromContext(ctx); got != coreauth.SharedChannelPoolID {
+				t.Fatalf("channel pool = %q, want shared pool", got)
+			}
+			if got := coreauth.AccountPoolFromContext(ctx); got != category {
+				t.Fatalf("account category = %q, want %q", got, category)
+			}
+		})
+	}
+}
 
 func TestGetContextWithCancelCapturesClientRequestMetadata(t *testing.T) {
 	gin.SetMode(gin.TestMode)
